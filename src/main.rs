@@ -4,7 +4,6 @@ mod ip;
 
 use crate::config::NatCell;
 use log::info;
-use std::fs::File;
 use std::io::Write;
 use std::process::Command;
 use std::thread::sleep;
