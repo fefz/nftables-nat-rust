@@ -41,14 +41,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             conf += &args[1];
         }
 
-        //脚本的前缀
         let script_prefix = String::from(
             "\n\
-        add table ip nat\n\
-        delete table ip nat\n\
-        add table ip nat\n\
-        add chain nat PREROUTING { type nat hook prerouting priority -100 ; }\n\
-        add chain nat POSTROUTING { type nat hook postrouting priority 100 ; }\n\n",
+            # 首先处理 dnat\n\
+            chain port-dnat {\n\
+                type nat hook prerouting priority dstnat;policy accept;\n"
+        );
+
+        // 在生成完所有规则后，添加后缀
+        let script_suffix = format!(
+            "}}\n\
+            set dst-ip {{\n\
+                type ipv4_addr\n\
+                flags interval\n\
+                elements = {{{}}}\n\
+            }}\n\
+            # 再处理 snat\n\
+            chain port-snat {{\n\
+                type nat hook postrouting priority srcnat;policy accept;\n\
+                ip daddr @dst-ip masquerade\n\
+            }}\n",
+            collect_unique_ips(&vec)  // 需要添加这个新函数
         );
 
         let vec = config::read_config(conf);
@@ -59,6 +72,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             let string = x.build();
             script += &string;
         }
+
+        script += &script_suffix;
 
         //如果是linux，且生成的脚本产生变化，则写到文件，并且执行
         if script != latest_script {
