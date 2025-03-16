@@ -160,8 +160,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // 构建新的配置
                     let mut final_conf = before_close;
                     final_conf.push_str(&script);
-                    final_conf.push_str("\n");
+                    
+                    // 确保在添加后闭合花括号
+                    if !final_conf.trim().ends_with("}") {
+                        final_conf.push_str("\n");
+                    }
+                    
                     final_conf.push_str(&after_close);
+                    
+                    // 检查最终配置是否正确闭合所有花括号
+                    let open_braces = final_conf.matches('{').count();
+                    let close_braces = final_conf.matches('}').count();
+                    
+                    if open_braces > close_braces {
+                        // 如果花括号不平衡，添加缺少的闭合花括号
+                        for _ in 0..(open_braces - close_braces) {
+                            final_conf.push_str("}\n");
+                        }
+                    }
                     
                     // 写入配置
                     let _ = std::fs::write("/etc/nftables.conf", final_conf);
@@ -178,7 +194,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     complete_conf.push_str("        type filter hook output priority filter;\n");
                     complete_conf.push_str("    }\n");
                     complete_conf.push_str(&script);
-                    complete_conf.push_str("\n}\n");
+                    
+                    // 确保配置以闭合的花括号结束
+                    if !complete_conf.trim().ends_with("}") {
+                        complete_conf.push_str("\n}");
+                    }
+                    
+                    // 检查最终配置是否正确闭合所有花括号
+                    let open_braces = complete_conf.matches('{').count();
+                    let close_braces = complete_conf.matches('}').count();
+                    
+                    if open_braces > close_braces {
+                        // 如果花括号不平衡，添加缺少的闭合花括号
+                        for _ in 0..(open_braces - close_braces) {
+                            complete_conf.push_str("\n}");
+                        }
+                    }
+                    
+                    complete_conf.push_str("\n");
                     
                     let _ = std::fs::write("/etc/nftables.conf", complete_conf);
                 }
