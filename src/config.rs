@@ -81,11 +81,6 @@ impl NatCell {
             Ok(s) => s,
             Err(_) => return "".to_string(),
         };
-        // 从环境变量读取本机ip或自动探测
-        let local_ip = env::var("nat_local_ip").unwrap_or(match ip::local_ip() {
-            Ok(s) => s,
-            Err(_) => return "".to_string(),
-        });
 
         match &self {
             NatCell::Range {
@@ -94,12 +89,8 @@ impl NatCell {
                 dst_domain: _,
                 protocol,
             } => {
-                format!("# {cell:?}\n\
-                    {tcpPrefix}add rule ip nat PREROUTING tcp dport {portStart}-{portEnd} counter dnat to {dstIp}:{portStart}-{portEnd}\n\
-                    {udpPrefix}add rule ip nat PREROUTING udp dport {portStart}-{portEnd} counter dnat to {dstIp}:{portStart}-{portEnd}\n\
-                    {tcpPrefix}add rule ip nat POSTROUTING ip daddr {dstIp} tcp dport {portStart}-{portEnd} counter snat to {localIP}\n\
-                    {udpPrefix}add rule ip nat POSTROUTING ip daddr {dstIp} udp dport {portStart}-{portEnd} counter snat to {localIP}\n\n\
-                    ", cell = self, portStart = port_start, portEnd = port_end, dstIp = dst_ip, localIP = local_ip, tcpPrefix = protocol.tcp_prefix(), udpPrefix = protocol.udp_prefix())
+                format!("        ip protocol {{ tcp,udp }} th dport {}-{} counter dnat to {}:{}-{}\n",
+                    port_start, port_end, dst_ip, port_start, port_end)
             }
             NatCell::Single {
                 src_port,
@@ -108,19 +99,11 @@ impl NatCell {
                 protocol,
             } => {
                 if dst_domain == "localhost" || dst_domain == "127.0.0.1" {
-                    // 重定向到本机
-                    format!("# {cell:?}\n\
-                        {tcpPrefix}add rule ip nat PREROUTING tcp dport {localPort} redirect to :{remotePort}\n\
-                        {udpPrefix}add rule ip nat PREROUTING udp dport {localPort} redirect to :{remotePort}\n\n\
-                        ", cell = self, localPort = src_port, remotePort = dst_port, tcpPrefix = protocol.tcp_prefix(), udpPrefix = protocol.udp_prefix())
+                    format!("        ip protocol {{ tcp,udp }} th dport {} counter redirect to :{}\n",
+                        src_port, dst_port)
                 } else {
-                    // 转发到其他机器
-                    format!("# {cell:?}\n\
-                        {tcpPrefix}add rule ip nat PREROUTING tcp dport {localPort} counter dnat to {dstIp}:{dstPort}\n\
-                        {udpPrefix}add rule ip nat PREROUTING udp dport {localPort} counter dnat to {dstIp}:{dstPort}\n\
-                        {tcpPrefix}add rule ip nat POSTROUTING ip daddr {dstIp} tcp dport {dstPort} counter snat to {localIP}\n\
-                        {udpPrefix}add rule ip nat POSTROUTING ip daddr {dstIp} udp dport {dstPort} counter snat to {localIP}\n\n\
-                        ", cell = self, localPort = src_port, dstPort = dst_port, dstIp = dst_ip, localIP = local_ip, tcpPrefix = protocol.tcp_prefix(), udpPrefix = protocol.udp_prefix())
+                    format!("        ip protocol {{ tcp,udp }} th dport {} counter dnat to {}:{}\n",
+                        src_port, dst_ip, dst_port)
                 }
             }
             NatCell::Comment { .. } => "".to_string(),
