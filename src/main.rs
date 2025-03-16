@@ -71,8 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                     let _ = std::fs::copy("/etc/nftables.conf", "/etc/nftables.conf.backup");
                 }
 
-                // 2. 读取原始配置
-                let mut system_conf = std::fs::read_to_string("/etc/nftables.conf")
+                // 2. 读取备份的原始配置作为基础
+                let mut system_conf = std::fs::read_to_string("/etc/nftables.conf.backup")
                     .unwrap_or_else(|_| String::new());
 
                 // 3. 在配置末尾添加或更新我们的NAT规则
