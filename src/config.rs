@@ -73,7 +73,7 @@ impl NatCell {
                 dst_domain: _,
                 protocol: _,
             } => {
-                format!("    ip protocol {{ tcp,udp }} th dport {}-{} counter dnat to {}:{}-{}\n",
+                format!("        ip protocol {{ tcp,udp }} th dport {}-{} counter dnat to {}:{}-{}\n",
                     port_start, port_end, dst_ip, port_start, port_end)
             }
             NatCell::Single {
@@ -83,10 +83,10 @@ impl NatCell {
                 protocol: _,
             } => {
                 if dst_domain == "localhost" || dst_domain == "127.0.0.1" {
-                    format!("    ip protocol {{ tcp,udp }} th dport {} counter redirect to :{}\n",
+                    format!("        ip protocol {{ tcp,udp }} th dport {} counter redirect to :{}\n",
                         src_port, dst_port)
                 } else {
-                    format!("    ip protocol {{ tcp,udp }} th dport {} counter dnat to {}:{}\n",
+                    format!("        ip protocol {{ tcp,udp }} th dport {} counter dnat to {}:{}\n",
                         src_port, dst_ip, dst_port)
                 }
             }
