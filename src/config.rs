@@ -1,7 +1,6 @@
 #![deny(warnings)]
 use crate::ip;
 use log::info;
-use std::env;
 use std::fs;
 use std::process::exit;
 
@@ -10,23 +9,6 @@ pub enum Protocol {
     All,
     Tcp,
     Udp,
-}
-
-impl Protocol {
-    fn tcp_prefix(&self) -> String {
-        match &self {
-            Protocol::All => "".to_string(),
-            Protocol::Tcp => "".to_string(),
-            Protocol::Udp => "#".to_string(),
-        }
-    }
-    fn udp_prefix(&self) -> String {
-        match &self {
-            Protocol::All => "".to_string(),
-            Protocol::Tcp => "#".to_string(),
-            Protocol::Udp => "".to_string(),
-        }
-    }
 }
 
 impl From<Protocol> for String {
@@ -57,12 +39,14 @@ pub enum NatCell {
         src_port: i32,
         dst_port: i32,
         dst_domain: String,
+        #[allow(dead_code)]
         protocol: Protocol,
     },
     Range {
         port_start: i32,
         port_end: i32,
         dst_domain: String,
+        #[allow(dead_code)]
         protocol: Protocol,
     },
     Comment {
@@ -87,22 +71,22 @@ impl NatCell {
                 port_start,
                 port_end,
                 dst_domain: _,
-                protocol,
+                protocol: _,
             } => {
-                format!("        ip protocol {{ tcp,udp }} th dport {}-{} counter dnat to {}:{}-{}\n",
+                format!("    ip protocol {{ tcp,udp }} th dport {}-{} counter dnat to {}:{}-{}\n",
                     port_start, port_end, dst_ip, port_start, port_end)
             }
             NatCell::Single {
                 src_port,
                 dst_port,
                 dst_domain,
-                protocol,
+                protocol: _,
             } => {
                 if dst_domain == "localhost" || dst_domain == "127.0.0.1" {
-                    format!("        ip protocol {{ tcp,udp }} th dport {} counter redirect to :{}\n",
+                    format!("    ip protocol {{ tcp,udp }} th dport {} counter redirect to :{}\n",
                         src_port, dst_port)
                 } else {
-                    format!("        ip protocol {{ tcp,udp }} th dport {} counter dnat to {}:{}\n",
+                    format!("    ip protocol {{ tcp,udp }} th dport {} counter dnat to {}:{}\n",
                         src_port, dst_ip, dst_port)
                 }
             }
