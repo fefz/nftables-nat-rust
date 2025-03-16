@@ -67,32 +67,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             info!("nftables脚本如下：\n{}", script);
             latest_script.clone_from(&script);
             if cfg!(target_os = "linux") {
-                // 1. 首先将生成的规则写入文件
-                let f = File::create("/etc/nftables/nat-diy.nft");
-                if let Ok(mut file) = f {
-                    file.write_all(script.as_bytes()).expect("写失败");
+                // 1. 首先备份原始的系统配置（如果还没有备份）
+                if !std::path::Path::new("/etc/nftables.conf.backup").exists() {
+                    let _ = std::fs::copy("/etc/nftables.conf", "/etc/nftables.conf.backup");
                 }
 
-                // 2. 先刷新所有规则
-                let _ = Command::new("/usr/sbin/nft")
-                    .arg("flush")
-                    .arg("ruleset")
-                    .output();
+                // 2. 读取原始配置
+                let mut system_conf = std::fs::read_to_string("/etc/nftables.conf")
+                    .unwrap_or_else(|_| String::new());
 
-                // 3. 应用系统默认配置
-                let _ = Command::new("/usr/sbin/nft")
-                    .arg("-f")
-                    .arg("/etc/nftables.conf")
-                    .output();
+                // 3. 在配置末尾添加或更新我们的NAT规则
+                if let Some(nat_start) = system_conf.find("# BEGIN NAT RULES") {
+                    if let Some(nat_end) = system_conf.find("# END NAT RULES") {
+                        system_conf.replace_range(nat_start..nat_end + 15, "");
+                    }
+                }
+                
+                system_conf.push_str("\n# BEGIN NAT RULES\n");
+                system_conf.push_str(&script);
+                system_conf.push_str("# END NAT RULES\n");
 
-                // 4. 再应用我们的NAT规则
+                // 4. 写入完整配置
+                let _ = std::fs::write("/etc/nftables.conf", system_conf);
+
+                // 5. 应用完整配置
                 let output = Command::new("/usr/sbin/nft")
                     .arg("-f")
-                    .arg("/etc/nftables/nat-diy.nft")
+                    .arg("/etc/nftables.conf")
                     .output()
                     .expect("/usr/sbin/nft invoke error");
                 info!(
-                    "执行/usr/sbin/nft -f /etc/nftables/nat-diy.nft\n执行结果: {}",
+                    "执行/usr/sbin/nft -f /etc/nftables.conf\n执行结果: {}",
                     output.status
                 );
                 io::stdout()
