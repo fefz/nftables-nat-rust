@@ -2,6 +2,7 @@ use std::io;
 use std::net::UdpSocket;
 use std::ops::Add;
 
+#[allow(dead_code)]
 pub fn local_ip() -> io::Result<String> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
     socket.connect("8.8.8.8:80")?;
