@@ -43,8 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
         //脚本的前缀
         let script_prefix = String::from(
-            "#!/usr/sbin/nft -f\n\
-        \n\
+            "\n\
         add table ip nat\n\
         delete table ip nat\n\
         add table ip nat\n\
@@ -89,24 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                 // 4. 写入完整配置
                 let _ = std::fs::write("/etc/nftables.conf", system_conf);
 
-                // 5. 应用完整配置
-                let output = Command::new("/usr/sbin/nft")
-                    .arg("-f")
-                    .arg("/etc/nftables.conf")
-                    .output()
-                    .expect("/usr/sbin/nft invoke error");
-                info!(
-                    "执行/usr/sbin/nft -f /etc/nftables.conf\n执行结果: {}",
-                    output.status
-                );
-                io::stdout()
-                    .write_all(&output.stdout)
-                    .unwrap_or_else(|e| info!("error {}", e));
-                io::stderr()
-                    .write_all(&output.stderr)
-                    .unwrap_or_else(|e| info!("error {}", e));
-
-                // 获取所有配置的目标IP并执行ip rule命令
+                // 5. 先执行 ip rule 命令
                 for x in vec.iter() {
                     if let Some(dst_domain) = match x {
                         NatCell::Single { dst_domain, .. } => Some(dst_domain),
@@ -149,6 +131,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                         }
                     }
                 }
+
+                // 6. 最后应用 nftables 配置
+                let output = Command::new("/usr/sbin/nft")
+                    .arg("-f")
+                    .arg("/etc/nftables.conf")
+                    .output()
+                    .expect("/usr/sbin/nft invoke error");
+                info!(
+                    "执行/usr/sbin/nft -f /etc/nftables.conf\n执行结果: {}",
+                    output.status
+                );
+                io::stdout()
+                    .write_all(&output.stdout)
+                    .unwrap_or_else(|e| info!("error {}", e));
+                io::stderr()
+                    .write_all(&output.stderr)
+                    .unwrap_or_else(|e| info!("error {}", e));
 
                 info!("WAIT:等待配置或目标IP发生改变....\n");
             }
