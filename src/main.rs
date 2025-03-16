@@ -65,8 +65,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let nat_cells = config::read_config(conf);
         let mut script = String::new();
 
-        // 添加脚本前缀
-        script.push_str("\n# 首先处理 dnat\nchain port-dnat {\n    type nat hook prerouting priority dstnat;policy accept;\n");
+        // 修改脚本格式，不再创建完整的table inet filter结构
+        // 而是只生成要添加的NAT规则部分
+        script.push_str("\n    # NAT规则 - 由程序自动生成\n");
+        script.push_str("    chain port-dnat {\n");
+        script.push_str("        type nat hook prerouting priority dstnat; policy accept;\n");
 
         // 添加所有NAT规则
         for x in nat_cells.iter() {
@@ -76,17 +79,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 添加脚本后缀
         let script_suffix = format!(
-            "}}\n\
-            set dst-ip {{\n\
-                type ipv4_addr\n\
-                flags interval\n\
-                elements = {{{}}}\n\
-            }}\n\
-            # 再处理 snat\n\
-            chain port-snat {{\n\
-                type nat hook postrouting priority srcnat;policy accept;\n\
-                ip daddr @dst-ip masquerade\n\
-            }}\n",
+            "    }}\n\
+    \n\
+    set dst-ip {{\n\
+        type ipv4_addr\n\
+        flags interval\n\
+        elements = {{{}}}\n\
+    }}\n\
+    \n\
+    # 再处理 snat\n\
+    chain port-snat {{\n\
+        type nat hook postrouting priority srcnat; policy accept;\n\
+        ip daddr @dst-ip masquerade\n\
+    }}",
             collect_unique_ips(&nat_cells)
         );
         script.push_str(&script_suffix);
@@ -95,23 +100,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("nftables脚本如下：\n{}", script);
             latest_script.clone_from(&script);
             if cfg!(target_os = "linux") {
-                // 1. 读取备份的原始配置作为基础
-                let mut system_conf = std::fs::read_to_string("/etc/nftables.conf.backup")
+                // 1. 读取备份的原始配置
+                let system_conf = std::fs::read_to_string("/etc/nftables.conf.backup")
                     .unwrap_or_else(|_| String::new());
 
-                // 2. 在配置末尾添加或更新我们的NAT规则
-                if let Some(nat_start) = system_conf.find("# BEGIN NAT RULES") {
-                    if let Some(nat_end) = system_conf.find("# END NAT RULES") {
-                        system_conf.replace_range(nat_start..nat_end + 15, "");
-                    }
-                }
-                
-                system_conf.push_str("\n# BEGIN NAT RULES\n");
-                system_conf.push_str(&script);
-                system_conf.push_str("# END NAT RULES\n");
+                // 2. 解析原始配置，找到table inet filter的结束位置
+                let mut new_conf = String::new();
+                let mut in_table_inet_filter = false;
+                let mut table_inet_filter_end = 0;
+                let mut has_table_inet_filter = false;
+                let mut brace_count = 0;
 
-                // 3. 写入完整配置
-                let _ = std::fs::write("/etc/nftables.conf", system_conf);
+                for line in system_conf.lines() {
+                    if line.trim().starts_with("table inet filter {") {
+                        in_table_inet_filter = true;
+                        has_table_inet_filter = true;
+                        brace_count = 1;
+                    } else if in_table_inet_filter {
+                        // 计算花括号的嵌套层级
+                        brace_count += line.matches('{').count() as i32;
+                        brace_count -= line.matches('}').count() as i32;
+                        
+                        // 当找到匹配的结束花括号时
+                        if brace_count == 0 {
+                            in_table_inet_filter = false;
+                            table_inet_filter_end = new_conf.len() + line.len();
+                        }
+                    }
+                    new_conf.push_str(line);
+                    new_conf.push('\n');
+                }
+
+                // 3. 根据是否找到table inet filter决定如何插入NAT规则
+                if has_table_inet_filter {
+                    // 找到了table inet filter，在其结束前插入NAT规则
+                    let before_close = new_conf[..table_inet_filter_end-1].to_string();
+                    let after_close = new_conf[table_inet_filter_end..].to_string();
+                    
+                    // 移除旧的NAT规则（如果有）
+                    let before_close = if let Some(nat_start) = before_close.find("# NAT规则 - 由程序自动生成") {
+                        if let Some(nat_end) = before_close[nat_start..].find("# 再处理 snat") {
+                            if let Some(end_brace) = before_close[nat_start + nat_end..].find("chain port-snat") {
+                                if let Some(final_end) = before_close[nat_start + nat_end + end_brace..].find('}') {
+                                    let _end_pos = nat_start + nat_end + end_brace + final_end + 1;
+                                    before_close[..nat_start].to_string()
+                                } else {
+                                    before_close
+                                }
+                            } else {
+                                before_close
+                            }
+                        } else {
+                            before_close
+                        }
+                    } else {
+                        before_close
+                    };
+                    
+                    // 构建新的配置
+                    let mut final_conf = before_close;
+                    final_conf.push_str(&script);
+                    final_conf.push_str("\n");
+                    final_conf.push_str(&after_close);
+                    
+                    // 写入配置
+                    let _ = std::fs::write("/etc/nftables.conf", final_conf);
+                } else {
+                    // 没有找到table inet filter，创建一个新的完整配置
+                    let mut complete_conf = String::from("#!/usr/sbin/nft -f\n\ntable inet filter {\n");
+                    complete_conf.push_str("    chain input {\n");
+                    complete_conf.push_str("        type filter hook input priority filter;\n");
+                    complete_conf.push_str("    }\n");
+                    complete_conf.push_str("    chain forward {\n");
+                    complete_conf.push_str("        type filter hook forward priority filter;\n");
+                    complete_conf.push_str("    }\n");
+                    complete_conf.push_str("    chain output {\n");
+                    complete_conf.push_str("        type filter hook output priority filter;\n");
+                    complete_conf.push_str("    }\n");
+                    complete_conf.push_str(&script);
+                    complete_conf.push_str("\n}\n");
+                    
+                    let _ = std::fs::write("/etc/nftables.conf", complete_conf);
+                }
 
                 // 4. 先执行 ip rule 命令
                 for x in nat_cells.iter() {
